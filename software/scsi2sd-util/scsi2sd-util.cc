@@ -61,6 +61,82 @@ using std::tr1::shared_ptr;
 
 #define MIN_FIRMWARE_VERSION 0x0400
 
+/*
+ *      SCSI opcodes
+ */
+
+#define TEST_UNIT_READY       0x00
+#define REZERO_UNIT           0x01
+#define REQUEST_SENSE         0x03
+#define FORMAT_UNIT           0x04
+#define READ_BLOCK_LIMITS     0x05
+#define REASSIGN_BLOCKS       0x07
+#define READ_6                0x08
+#define WRITE_6               0x0a
+#define SEEK_6                0x0b
+#define READ_REVERSE          0x0f
+#define WRITE_FILEMARKS       0x10
+#define SPACE                 0x11
+#define INQUIRY               0x12
+#define RECOVER_BUFFERED_DATA 0x14
+#define MODE_SELECT           0x15
+#define RESERVE               0x16
+#define RELEASE               0x17
+#define COPY                  0x18
+#define ERASE                 0x19
+#define MODE_SENSE            0x1a
+#define START_STOP            0x1b
+#define RECEIVE_DIAGNOSTIC    0x1c
+#define SEND_DIAGNOSTIC       0x1d
+#define ALLOW_MEDIUM_REMOVAL  0x1e
+
+#define SET_WINDOW            0x24
+#define READ_CAPACITY         0x25
+#define READ_10               0x28
+#define WRITE_10              0x2a
+#define SEEK_10               0x2b
+#define WRITE_VERIFY          0x2e
+#define VERIFY                0x2f
+#define SEARCH_HIGH           0x30
+#define SEARCH_EQUAL          0x31
+#define SEARCH_LOW            0x32
+#define SET_LIMITS            0x33
+#define PRE_FETCH             0x34
+#define READ_POSITION         0x34
+#define SYNCHRONIZE_CACHE     0x35
+#define LOCK_UNLOCK_CACHE     0x36
+#define READ_DEFECT_DATA      0x37
+#define MEDIUM_SCAN           0x38
+#define COMPARE               0x39
+#define COPY_VERIFY           0x3a
+#define WRITE_BUFFER          0x3b
+#define READ_BUFFER           0x3c
+#define UPDATE_BLOCK          0x3d
+#define READ_LONG             0x3e
+#define WRITE_LONG            0x3f
+#define CHANGE_DEFINITION     0x40
+#define WRITE_SAME            0x41
+#define READ_TOC              0x43
+#define REPORT_DENSITY        0x44
+#define LOG_SELECT            0x4c
+#define LOG_SENSE             0x4d
+#define MODE_SELECT_10        0x55
+#define RESERVE_10            0x56
+#define RELEASE_10            0x57
+#define MODE_SENSE_10         0x5a
+#define PERSISTENT_RESERVE_IN 0x5e
+#define PERSISTENT_RESERVE_OUT 0x5f
+#define MOVE_MEDIUM           0xa5
+#define READ_12               0xa8
+#define WRITE_12              0xaa
+#define WRITE_VERIFY_12       0xae
+#define SEARCH_HIGH_12        0xb0
+#define SEARCH_EQUAL_12       0xb1
+#define SEARCH_LOW_12         0xb2
+#define READ_ELEMENT_STATUS   0xb8
+#define SEND_VOLUME_TAG       0xb6
+#define WRITE_LONG_2          0xea
+
 using namespace SCSI2SD;
 
 class ProgressWrapper
@@ -648,11 +724,549 @@ private:
         {
 		std::stringstream msg;
 		msg << std::hex;
-		for (size_t i = 0; i < 32 && i < buf.size(); ++i)
+		static std::vector<uint8_t> last(64);
+		int ticks;
+		typedef enum
+		{
+			GOOD = 0,
+			CHECK_CONDITION = 2,
+			BUSY = 0x8,
+			INTERMEDIATE = 0x10,
+			CONFLICT = 0x18
+		} SCSI_STATUS;
+		typedef enum
+		{
+			NO_SENSE = 0,
+			RECOVERED_ERROR = 1,
+			NOT_READY = 2,
+			MEDIUM_ERROR = 3,
+			HARDWARE_ERROR = 4,
+			ILLEGAL_REQUEST = 5,
+			UNIT_ATTENTION = 6,
+			DATA_PROTECT = 7,
+			BLANK_CHECK = 8,
+			VENDOR_SPECIFIC = 9,
+			COPY_ABORTED = 0xA,
+			ABORTED_COMMAND = 0xB,
+			EQUAL = 0xC,
+			VOLUME_OVERFLOW = 0xD,
+			MISCOMPARE = 0xE,
+			RESERVED = 0xF
+		} SCSI_SENSE;
+		typedef enum
+		{
+			ADDRESS_MARK_NOT_FOUND_FOR_DATA_FIELD                  = 0x1300,
+			ADDRESS_MARK_NOT_FOUND_FOR_ID_FIELD                    = 0x1200,
+			CANNOT_READ_MEDIUM_INCOMPATIBLE_FORMAT                 = 0x3002,
+			CANNOT_READ_MEDIUM_UNKNOWN_FORMAT                      = 0x3001,
+			CHANGED_OPERATING_DEFINITION                           = 0x3F02,
+			COMMAND_PHASE_ERROR                                    = 0x4A00,
+			COMMAND_SEQUENCE_ERROR                                 = 0x2C00,
+			COMMANDS_CLEARED_BY_ANOTHER_INITIATOR                  = 0x2F00,
+			COPY_CANNOT_EXECUTE_SINCE_HOST_CANNOT_DISCONNECT       = 0x2B00,
+			DATA_PATH_FAILURE                                      = 0x4100,
+			DATA_PHASE_ERROR                                       = 0x4B00,
+			DATA_SYNCHRONIZATION_MARK_ERROR                        = 0x1600,
+			DEFECT_LIST_ERROR                                      = 0x1900,
+			DEFECT_LIST_ERROR_IN_GROWN_LIST                        = 0x1903,
+			DEFECT_LIST_ERROR_IN_PRIMARY_LIST                      = 0x1902,
+			DEFECT_LIST_NOT_AVAILABLE                              = 0x1901,
+			DEFECT_LIST_NOT_FOUND                                  = 0x1C00,
+			DEFECT_LIST_UPDATE_FAILURE                             = 0x3201,
+			ERROR_LOG_OVERFLOW                                     = 0x0A00,
+			ERROR_TOO_LONG_TO_CORRECT                              = 0x1102,
+			FORMAT_COMMAND_FAILED                                  = 0x3101,
+			GROWN_DEFECT_LIST_NOT_FOUND                            = 0x1C02,
+			IO_PROCESS_TERMINATED                                  = 0x0006,
+			ID_CRC_OR_ECC_ERROR                                    = 0x1000,
+			ILLEGAL_FUNCTION                                       = 0x2200,
+			INCOMPATIBLE_MEDIUM_INSTALLED                          = 0x3000,
+			INITIATOR_DETECTED_ERROR_MESSAGE_RECEIVED              = 0x4800,
+			INQUIRY_DATA_HAS_CHANGED                               = 0x3F03,
+			INTERNAL_TARGET_FAILURE                                = 0x4400,
+			INVALID_BITS_IN_IDENTIFY_MESSAGE                       = 0x3D00,
+			INVALID_COMMAND_OPERATION_CODE                         = 0x2000,
+			INVALID_FIELD_IN_CDB                                   = 0x2400,
+			INVALID_FIELD_IN_PARAMETER_LIST                        = 0x2600,
+			INVALID_MESSAGE_ERROR                                  = 0x4900,
+			LOG_COUNTER_AT_MAXIMUM                                 = 0x5B02,
+			LOG_EXCEPTION                                          = 0x5B00,
+			LOG_LIST_CODES_EXHAUSTED                               = 0x5B03,
+			LOG_PARAMETERS_CHANGED                                 = 0x2A02,
+			LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE                     = 0x2100,
+			LOGICAL_UNIT_COMMUNICATION_FAILURE                     = 0x0800,
+			LOGICAL_UNIT_COMMUNICATION_PARITY_ERROR                = 0x0802,
+			LOGICAL_UNIT_COMMUNICATION_TIMEOUT                     = 0x0801,
+			LOGICAL_UNIT_DOES_NOT_RESPOND_TO_SELECTION             = 0x0500,
+			LOGICAL_UNIT_FAILED_SELF_CONFIGURATION                 = 0x4C00,
+			LOGICAL_UNIT_HAS_NOT_SELF_CONFIGURED_YET               = 0x3E00,
+			LOGICAL_UNIT_IS_IN_PROCESS_OF_BECOMING_READY           = 0x0401,
+			LOGICAL_UNIT_NOT_READY_CAUSE_NOT_REPORTABLE            = 0x0400,
+			LOGICAL_UNIT_NOT_READY_FORMAT_IN_PROGRESS              = 0x0404,
+			LOGICAL_UNIT_NOT_READY_INITIALIZING_COMMAND_REQUIRED   = 0x0402,
+			LOGICAL_UNIT_NOT_READY_MANUAL_INTERVENTION_REQUIRED    = 0x0403,
+			LOGICAL_UNIT_NOT_SUPPORTED                             = 0x2500,
+			MECHANICAL_POSITIONING_ERROR                           = 0x1501,
+			MEDIA_LOAD_OR_EJECT_FAILED                             = 0x5300,
+			MEDIUM_FORMAT_CORRUPTED                                = 0x3100,
+			MEDIUM_NOT_PRESENT                                     = 0x3A00,
+			MEDIUM_REMOVAL_PREVENTED                               = 0x5302,
+			MESSAGE_ERROR                                          = 0x4300,
+			MICROCODE_HAS_BEEN_CHANGED                             = 0x3F01,
+			MISCOMPARE_DURING_VERIFY_OPERATION                     = 0x1D00,
+			MISCORRECTED_ERROR                                     = 0x110A,
+			MODE_PARAMETERS_CHANGED                                = 0x2A01,
+			MULTIPLE_PERIPHERAL_DEVICES_SELECTED                   = 0x0700,
+			MULTIPLE_READ_ERRORS                                   = 0x1103,
+			NO_ADDITIONAL_SENSE_INFORMATION                        = 0x0000,
+			NO_DEFECT_SPARE_LOCATION_AVAILABLE                     = 0x3200,
+			NO_INDEX_SECTOR_SIGNAL                                 = 0x0100,
+			NO_REFERENCE_POSITION_FOUND                            = 0x0600,
+			NO_SEEK_COMPLETE                                       = 0x0200,
+			NOT_READY_TO_READY_TRANSITION_MEDIUM_MAY_HAVE_CHANGED  = 0x2800,
+			OPERATOR_MEDIUM_REMOVAL_REQUEST                        = 0x5A01,
+			OPERATOR_REQUEST_OR_STATE_CHANGE_INPUT                 = 0x5A00,
+			OPERATOR_SELECTED_WRITE_PERMIT                         = 0x5A03,
+			OPERATOR_SELECTED_WRITE_PROTECT                        = 0x5A02,
+			OVERLAPPED_COMMANDS_ATTEMPTED                          = 0x4E00,
+			PARAMETER_LIST_LENGTH_ERROR                            = 0x1A00,
+			PARAMETER_NOT_SUPPORTED                                = 0x2601,
+			PARAMETER_VALUE_INVALID                                = 0x2602,
+			PARAMETERS_CHANGED                                     = 0x2A00,
+			PERIPHERAL_DEVICE_WRITE_FAULT                          = 0x0300,
+			POSITIONING_ERROR_DETECTED_BY_READ_OF_MEDIUM           = 0x1502,
+			POWER_ON_RESET_OR_BUS_DEVICE_RESET_OCCURRED            = 0x2900,
+			POWER_ON_RESET                                         = 0x2901,
+			POWER_ON_OR_SELF_TEST_FAILURE                          = 0x4200,
+			PRIMARY_DEFECT_LIST_NOT_FOUND                          = 0x1C01,
+			RAM_FAILURE                                            = 0x4000,
+			RANDOM_POSITIONING_ERROR                               = 0x1500,
+			READ_RETRIES_EXHAUSTED                                 = 0x1101,
+			RECORD_NOT_FOUND                                       = 0x1401,
+			RECORDED_ENTITY_NOT_FOUND                              = 0x1400,
+			RECOVERED_DATA_DATA_AUTO_REALLOCATED                   = 0x1802,
+			RECOVERED_DATA_RECOMMEND_REASSIGNMENT                  = 0x1805,
+			RECOVERED_DATA_RECOMMEND_REWRITE                       = 0x1806,
+			RECOVERED_DATA_USING_PREVIOUS_SECTOR_ID                = 0x1705,
+			RECOVERED_DATA_WITH_ERROR_CORRECTION_RETRIES_APPLIED   = 0x1801,
+			RECOVERED_DATA_WITH_ERROR_CORRECTION_APPLIED           = 0x1800,
+			RECOVERED_DATA_WITH_NEGATIVE_HEAD_OFFSET               = 0x1703,
+			RECOVERED_DATA_WITH_NO_ERROR_CORRECTION_APPLIED        = 0x1700,
+			RECOVERED_DATA_WITH_POSITIVE_HEAD_OFFSET               = 0x1702,
+			RECOVERED_DATA_WITH_RETRIES                            = 0x1701,
+			RECOVERED_DATA_WITHOUT_ECC_DATA_AUTO_REALLOCATED       = 0x1706,
+			RECOVERED_DATA_WITHOUT_ECC_RECOMMEND_REASSIGNMENT      = 0x1707,
+			RECOVERED_DATA_WITHOUT_ECC_RECOMMEND_REWRITE           = 0x1708,
+			RECOVERED_ID_WITH_ECC_CORRECTION                       = 0x1E00,
+			ROUNDED_PARAMETER                                      = 0x3700,
+			RPL_STATUS_CHANGE                                      = 0x5C00,
+			SAVING_PARAMETERS_NOT_SUPPORTED                        = 0x3900,
+			SCSI_BUS_RESET                                         = 0x2902,
+			SCSI_PARITY_ERROR                                      = 0x4700,
+			SELECT_OR_RESELECT_FAILURE                             = 0x4500,
+			SPINDLES_NOT_SYNCHRONIZED                              = 0x5C02,
+			SPINDLES_SYNCHRONIZED                                  = 0x5C01,
+			SYNCHRONOUS_DATA_TRANSFER_ERROR                        = 0x1B00,
+			TARGET_OPERATING_CONDITIONS_HAVE_CHANGED               = 0x3F00,
+			THRESHOLD_CONDITION_MET                                = 0x5B01,
+			THRESHOLD_PARAMETERS_NOT_SUPPORTED                     = 0x2603,
+			TRACK_FOLLOWING_ERROR                                  = 0x0900,
+			UNRECOVERED_READ_ERROR                                 = 0x1100,
+			UNRECOVERED_READ_ERROR_AUTO_REALLOCATE_FAILED          = 0x1104,
+			UNRECOVERED_READ_ERROR_RECOMMEND_REASSIGNMENT          = 0x110B,
+			UNRECOVERED_READ_ERROR_RECOMMEND_REWRITE_THE_DATA      = 0x110C,
+			UNSUCCESSFUL_SOFT_RESET                                = 0x4600,
+			WRITE_ERROR_AUTO_REALLOCATION_FAILED                   = 0x0C02,
+			WRITE_ERROR_RECOVERED_WITH_AUTO_REALLOCATION           = 0x0C01,
+			WRITE_PROTECTED                                        = 0x2700
+		} SCSI_ASC_ASCQ;
+		typedef enum
+		{
+			DISK_STARTED = 1,     // Controlled via START STOP UNIT
+			DISK_PRESENT = 2,     // SD card is physically present
+			DISK_INITIALISED = 4, // SD card responded to init sequence
+			DISK_WP = 8           // Write-protect.
+		} DISK_STATE;
+		typedef enum
+		{
+			// internal bits
+			__scsiphase_msg = 1,
+			__scsiphase_cd = 2,
+			__scsiphase_io = 4,
+
+			BUS_FREE = -1,
+			BUS_BUSY = -2,
+			ARBITRATION = -3,
+			SELECTION = -4,
+			RESELECTION = -5,
+			STATUS = __scsiphase_cd | __scsiphase_io,
+			COMMAND = __scsiphase_cd,
+			DATA_IN = __scsiphase_io,
+			DATA_OUT = 0,
+			MESSAGE_IN = __scsiphase_msg | __scsiphase_cd | __scsiphase_io,
+			MESSAGE_OUT = __scsiphase_msg | __scsiphase_cd
+		} SCSI_PHASE;
+#define MSG(a) case a: msg << #a; break;
+#define MSGBIT(a,b) if (a & b) { msg << #b; msg << " "; }
+
+		if (buf.size() == 0)
+			return;
+
+		ticks = buf[25];
+		buf[25] = 0;
+		if (last == buf)
+			return;
+		last = buf;
+		switch (buf[0]) {
+		case TEST_UNIT_READY:
+			msg << "TEST_UNIT_READY";
+			break;
+		case REZERO_UNIT:  msg << "REZERO_UNIT"; break;
+		case REQUEST_SENSE:
+			msg << "REQUEST_SENSE";
+			msg << " LENGTH " << (int)(buf[4]);
+			break;
+		case FORMAT_UNIT:
+			msg << "FORMAT_UNIT";
+			msg << " DATA " << (buf[1] & 0x10);
+			break;
+		case READ_BLOCK_LIMITS:  msg << "READ_BLOCK_LIMITS"; break;
+		case REASSIGN_BLOCKS:  msg << "REASSIGN_BLOCKS"; break;
+		case READ_6:
+			msg << "READ_6";
+			msg << " LBA " << (((int) buf[1] & 0x1F) << 16) +
+                                          (((int) buf[2]) << 8) + buf[3];
+			msg << " BLOCKS " << (int)(buf[4]);
+			break;
+		case WRITE_6:
+			msg << "WRITE_6";
+			msg << " LBA " << (((uint32_t) buf[1] & 0x1F) << 16) +
+                                          (((uint32_t) buf[2]) << 8) + buf[3];
+			msg << " BLOCKS " << (int)(buf[4]);
+			break;
+		case SEEK_6:
+			msg << "SEEK_6";
+			msg << " LBA " << (((uint32_t) buf[1] & 0x1F) << 16) +
+                                          (((uint32_t) buf[2]) << 8) + buf[3];
+			break;
+		case READ_REVERSE:  msg << "READ_REVERSE"; break;
+		case WRITE_FILEMARKS:  msg << "WRITE_FILEMARKS"; break;
+		case SPACE:  msg << "SPACE"; break;
+		case INQUIRY:
+			msg << "INQUIRY";
+			msg << " ENABLE VPD " << (buf[1] & 1);
+			msg << " PAGE CODE " << (int)(buf[2]);
+			msg << " LENGTH " << (int)(buf[4]);
+			break;
+		case RECOVER_BUFFERED_DATA:  msg << "RECOVER_BUFFERED_DATA"; break;
+		case MODE_SELECT:
+			msg << "MODE_SELECT";
+			msg << " LENGTH " << (int)(buf[4]);
+			break;
+		case RESERVE:  msg << "RESERVE"; break;
+		case RELEASE:  msg << "RELEASE"; break;
+		case COPY:  msg << "COPY"; break;
+		case ERASE:  msg << "ERASE"; break;
+		case MODE_SENSE:
+			msg << "MODE_SENSE";
+			msg << " DBD " << (buf[1] & 0x08);
+			msg << " PAGE CONTROL " << (buf[2] >> 6);
+			msg << " PAGE CODE " << (buf[2] & 0x3F);
+			msg << " LENGTH " << (int)(buf[4]);
+			break;
+		case START_STOP:
+			msg << "START_STOP";
+			msg << " IMMED " << (buf[1] & 1);
+			msg << " START " << (buf[4] & 1);
+			break;
+		case RECEIVE_DIAGNOSTIC:  msg << "RECEIVE_DIAGNOSTIC"; break;
+		case SEND_DIAGNOSTIC:  msg << "SEND_DIAGNOSTIC"; break;
+		case ALLOW_MEDIUM_REMOVAL:  msg << "ALLOW_MEDIUM_REMOVAL"; break;
+		case SET_WINDOW:  msg << "SET_WINDOW"; break;
+		case READ_CAPACITY:
+			msg << "READ_CAPACITY";
+			msg << " LBA " << (((uint32_t)buf[2]) << 24) +
+					  (((uint32_t)buf[3]) << 16) +
+					  (((uint32_t)buf[4]) << 8) + buf[5];
+			msg << " PMI " << (buf[8] & 1);
+			break;
+		case READ_10:
+			msg << "READ_10";
+			msg << " LBA " << (((uint32_t)buf[2]) << 24) + (((uint32_t)buf[3]) << 16) +
+					  (((uint32_t) buf[4]) << 8) + buf[5];
+			msg << " BLOCKS " << (((uint32_t) buf[7]) << 8) + buf[8];
+			break;
+		case WRITE_10:
+			msg << "WRITE_10";
+			msg << " LBA " << (((uint32_t)buf[2]) << 24) + (((uint32_t)buf[3]) << 16) +
+					  (((uint32_t) buf[4]) << 8) + buf[5];
+			msg << " BLOCKS " << (((uint32_t) buf[7]) << 8) + buf[8];
+			break;
+		case SEEK_10:
+			msg << "SEEK_10";
+			msg << " LBA " << (((uint32_t)buf[2]) << 24) + (((uint32_t)buf[3]) << 16) +
+					  (((uint32_t) buf[4]) << 8) + buf[5];
+			break;
+		case WRITE_VERIFY:
+			msg << "WRITE_VERIFY";
+			msg << " LBA " << (((uint32_t)buf[2]) << 24) + (((uint32_t)buf[3]) << 16) +
+					  (((uint32_t) buf[4]) << 8) + buf[5];
+			msg << " BLOCKS " << (((uint32_t) buf[7]) << 8) + buf[8];
+			break;
+		case VERIFY:  msg << "VERIFY"; break;
+		case SEARCH_HIGH:  msg << "SEARCH_HIGH"; break;
+		case SEARCH_EQUAL:  msg << "SEARCH_EQUAL"; break;
+		case SEARCH_LOW:  msg << "SEARCH_LOW"; break;
+		case SET_LIMITS:  msg << "SET_LIMITS"; break;
+		case READ_POSITION:  msg << "READ_POSITION"; break;
+		case SYNCHRONIZE_CACHE:  msg << "SYNCHRONIZE_CACHE"; break;
+		case LOCK_UNLOCK_CACHE:  msg << "LOCK_UNLOCK_CACHE"; break;
+		case READ_DEFECT_DATA:  msg << "READ_DEFECT_DATA"; break;
+		case MEDIUM_SCAN:  msg << "MEDIUM_SCAN"; break;
+		case COMPARE:  msg << "COMPARE"; break;
+		case COPY_VERIFY:  msg << "COPY_VERIFY"; break;
+		case WRITE_BUFFER:  msg << "WRITE_BUFFER"; break;
+		case READ_BUFFER:  msg << "READ_BUFFER"; break;
+		case UPDATE_BLOCK:  msg << "UPDATE_BLOCK"; break;
+		case READ_LONG:  msg << "READ_LONG"; break;
+		case WRITE_LONG:  msg << "WRITE_LONG"; break;
+		case CHANGE_DEFINITION:  msg << "CHANGE_DEFINITION"; break;
+		case WRITE_SAME:  msg << "WRITE_SAME"; break;
+		case READ_TOC:
+			msg << "READ_TOC";
+			msg << " MSF " << (buf[1] & 0x02);
+			msg << " TRACK " << (int)(buf[6]);
+			msg << " LENGTH " <<  (((uint32_t) buf[7]) << 8) + buf[8];
+			msg << " FORMAT " << (buf[2] & 0x0F);
+			break;
+		case REPORT_DENSITY:
+			msg << "REPORT_DENSITY";
+			msg << " MSF " << (buf[1] & 0x02);
+			msg << " LENGTH " <<  (((uint32_t) buf[7]) << 8) + buf[8];
+			break;
+		case LOG_SELECT:  msg << "LOG_SELECT"; break;
+		case LOG_SENSE:  msg << "LOG_SENSE"; break;
+		case MODE_SELECT_10:
+			msg << "MODE_SELECT_10";
+			msg << " LENGTH " << (((uint16_t) buf[7]) << 8) + buf[8];
+			break;
+		case MODE_SENSE_10:
+			msg << "MODE_SENSE_10";
+			msg << " DBD " << (buf[1] & 0x08);
+			msg << " PAGE CONTROL " << (buf[2] >> 6);
+			msg << " PAGE CODE " << (buf[2] & 0x3F);
+			msg << " LENGTH " << (((uint16_t) buf[7]) << 8) + buf[8];
+			break;
+		case MOVE_MEDIUM:  msg << "MOVE_MEDIUM"; break;
+		case READ_12:  msg << "READ_12"; break;
+		case WRITE_12:  msg << "WRITE_12"; break;
+		case WRITE_VERIFY_12:  msg << "WRITE_VERIFY_12"; break;
+		case SEARCH_HIGH_12:  msg << "SEARCH_HIGH_12"; break;
+		case SEARCH_EQUAL_12:  msg << "SEARCH_EQUAL_12"; break;
+		case SEARCH_LOW_12:  msg << "SEARCH_LOW_12"; break;
+		case READ_ELEMENT_STATUS:  msg << "READ_ELEMENT_STATUS"; break;
+		case SEND_VOLUME_TAG:  msg << "SEND_VOLUME_TAG"; break;
+		case WRITE_LONG_2:  msg << "WRITE_LONG_2"; break;
+		default:
+			msg << "UNKNOWN(" << (int)(buf[0]) << ")";
+			break;
+		}
+		msg << "\n          ";
+		for (size_t i = 0; i < 12 && i < buf.size(); ++i)
 		{
 			msg << std::setfill('0') << std::setw(2) <<
 			static_cast<int>(buf[i]) << ' ';
 		}
+		msg << "\n          ";
+		switch ((char)buf[16]) {
+		MSG(BUS_FREE)
+		MSG(BUS_BUSY)
+		MSG(ARBITRATION)
+		MSG(SELECTION)
+		MSG(RESELECTION)
+		MSG(STATUS)
+		MSG(COMMAND)
+		MSG(DATA_IN)
+		MSG(DATA_OUT)
+		MSG(MESSAGE_IN)
+		MSG(MESSAGE_OUT)
+		}
+		msg << " ";
+		switch (buf[14]) {
+		MSG(GOOD)
+		MSG(CHECK_CONDITION)
+		MSG(BUSY)
+		MSG(INTERMEDIATE)
+		MSG(CONFLICT)
+		}
+		if (buf[17])
+			msg << " BSY";
+		if (buf[18])
+			msg << " SEL";
+		if (buf[19])
+			msg << " ATN";
+		if (buf[20])
+			msg << " RST";
+		msg << " DBx " << (int)(buf[29]);
+		msg << "\n          ";
+		switch (buf[15]) {
+		MSG(NO_SENSE)
+		MSG(RECOVERED_ERROR)
+		MSG(NOT_READY)
+		MSG(MEDIUM_ERROR)
+		MSG(HARDWARE_ERROR)
+		MSG(ILLEGAL_REQUEST)
+		MSG(UNIT_ATTENTION)
+		MSG(DATA_PROTECT)
+		MSG(BLANK_CHECK)
+		MSG(VENDOR_SPECIFIC)
+		MSG(COPY_ABORTED)
+		MSG(ABORTED_COMMAND)
+		MSG(EQUAL)
+		MSG(VOLUME_OVERFLOW)
+		MSG(MISCOMPARE)
+		MSG(RESERVED)
+		}
+		msg << " ";
+		switch (((uint16_t)buf[27] << 8) + buf[28]) {
+		MSG(ADDRESS_MARK_NOT_FOUND_FOR_DATA_FIELD)
+		MSG(ADDRESS_MARK_NOT_FOUND_FOR_ID_FIELD)
+		MSG(CANNOT_READ_MEDIUM_INCOMPATIBLE_FORMAT)
+		MSG(CANNOT_READ_MEDIUM_UNKNOWN_FORMAT)
+		MSG(CHANGED_OPERATING_DEFINITION)
+		MSG(COMMAND_PHASE_ERROR)
+		MSG(COMMAND_SEQUENCE_ERROR)
+		MSG(COMMANDS_CLEARED_BY_ANOTHER_INITIATOR)
+		MSG(COPY_CANNOT_EXECUTE_SINCE_HOST_CANNOT_DISCONNECT)
+		MSG(DATA_PATH_FAILURE)
+		MSG(DATA_PHASE_ERROR)
+		MSG(DATA_SYNCHRONIZATION_MARK_ERROR)
+		MSG(DEFECT_LIST_ERROR)
+		MSG(DEFECT_LIST_ERROR_IN_GROWN_LIST)
+		MSG(DEFECT_LIST_ERROR_IN_PRIMARY_LIST)
+		MSG(DEFECT_LIST_NOT_AVAILABLE)
+		MSG(DEFECT_LIST_NOT_FOUND)
+		MSG(DEFECT_LIST_UPDATE_FAILURE)
+		MSG(ERROR_LOG_OVERFLOW)
+		MSG(ERROR_TOO_LONG_TO_CORRECT)
+		MSG(FORMAT_COMMAND_FAILED)
+		MSG(GROWN_DEFECT_LIST_NOT_FOUND)
+		MSG(IO_PROCESS_TERMINATED)
+		MSG(ID_CRC_OR_ECC_ERROR)
+		MSG(ILLEGAL_FUNCTION)
+		MSG(INCOMPATIBLE_MEDIUM_INSTALLED)
+		MSG(INITIATOR_DETECTED_ERROR_MESSAGE_RECEIVED)
+		MSG(INQUIRY_DATA_HAS_CHANGED)
+		MSG(INTERNAL_TARGET_FAILURE)
+		MSG(INVALID_BITS_IN_IDENTIFY_MESSAGE)
+		MSG(INVALID_COMMAND_OPERATION_CODE)
+		MSG(INVALID_FIELD_IN_CDB)
+		MSG(INVALID_FIELD_IN_PARAMETER_LIST)
+		MSG(INVALID_MESSAGE_ERROR)
+		MSG(LOG_COUNTER_AT_MAXIMUM)
+		MSG(LOG_EXCEPTION)
+		MSG(LOG_LIST_CODES_EXHAUSTED)
+		MSG(LOG_PARAMETERS_CHANGED)
+		MSG(LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE)
+		MSG(LOGICAL_UNIT_COMMUNICATION_FAILURE)
+		MSG(LOGICAL_UNIT_COMMUNICATION_PARITY_ERROR)
+		MSG(LOGICAL_UNIT_COMMUNICATION_TIMEOUT)
+		MSG(LOGICAL_UNIT_DOES_NOT_RESPOND_TO_SELECTION)
+		MSG(LOGICAL_UNIT_FAILED_SELF_CONFIGURATION)
+		MSG(LOGICAL_UNIT_HAS_NOT_SELF_CONFIGURED_YET)
+		MSG(LOGICAL_UNIT_IS_IN_PROCESS_OF_BECOMING_READY)
+		MSG(LOGICAL_UNIT_NOT_READY_CAUSE_NOT_REPORTABLE)
+		MSG(LOGICAL_UNIT_NOT_READY_FORMAT_IN_PROGRESS)
+		MSG(LOGICAL_UNIT_NOT_READY_INITIALIZING_COMMAND_REQUIRED)
+		MSG(LOGICAL_UNIT_NOT_READY_MANUAL_INTERVENTION_REQUIRED)
+		MSG(LOGICAL_UNIT_NOT_SUPPORTED)
+		MSG(MECHANICAL_POSITIONING_ERROR)
+		MSG(MEDIA_LOAD_OR_EJECT_FAILED)
+		MSG(MEDIUM_FORMAT_CORRUPTED)
+		MSG(MEDIUM_NOT_PRESENT)
+		MSG(MEDIUM_REMOVAL_PREVENTED)
+		MSG(MESSAGE_ERROR)
+		MSG(MICROCODE_HAS_BEEN_CHANGED)
+		MSG(MISCOMPARE_DURING_VERIFY_OPERATION)
+		MSG(MISCORRECTED_ERROR)
+		MSG(MODE_PARAMETERS_CHANGED)
+		MSG(MULTIPLE_PERIPHERAL_DEVICES_SELECTED)
+		MSG(MULTIPLE_READ_ERRORS)
+		MSG(NO_ADDITIONAL_SENSE_INFORMATION)
+		MSG(NO_DEFECT_SPARE_LOCATION_AVAILABLE)
+		MSG(NO_INDEX_SECTOR_SIGNAL)
+		MSG(NO_REFERENCE_POSITION_FOUND)
+		MSG(NO_SEEK_COMPLETE)
+		MSG(NOT_READY_TO_READY_TRANSITION_MEDIUM_MAY_HAVE_CHANGED)
+		MSG(OPERATOR_MEDIUM_REMOVAL_REQUEST)
+		MSG(OPERATOR_REQUEST_OR_STATE_CHANGE_INPUT)
+		MSG(OPERATOR_SELECTED_WRITE_PERMIT)
+		MSG(OPERATOR_SELECTED_WRITE_PROTECT)
+		MSG(OVERLAPPED_COMMANDS_ATTEMPTED)
+		MSG(PARAMETER_LIST_LENGTH_ERROR)
+		MSG(PARAMETER_NOT_SUPPORTED)
+		MSG(PARAMETER_VALUE_INVALID)
+		MSG(PARAMETERS_CHANGED)
+		MSG(PERIPHERAL_DEVICE_WRITE_FAULT)
+		MSG(POSITIONING_ERROR_DETECTED_BY_READ_OF_MEDIUM)
+		MSG(POWER_ON_RESET_OR_BUS_DEVICE_RESET_OCCURRED)
+		MSG(POWER_ON_RESET)
+		MSG(POWER_ON_OR_SELF_TEST_FAILURE)
+		MSG(PRIMARY_DEFECT_LIST_NOT_FOUND)
+		MSG(RAM_FAILURE)
+		MSG(RANDOM_POSITIONING_ERROR)
+		MSG(READ_RETRIES_EXHAUSTED)
+		MSG(RECORD_NOT_FOUND)
+		MSG(RECORDED_ENTITY_NOT_FOUND)
+		MSG(RECOVERED_DATA_DATA_AUTO_REALLOCATED)
+		MSG(RECOVERED_DATA_RECOMMEND_REASSIGNMENT)
+		MSG(RECOVERED_DATA_RECOMMEND_REWRITE)
+		MSG(RECOVERED_DATA_USING_PREVIOUS_SECTOR_ID)
+		MSG(RECOVERED_DATA_WITH_ERROR_CORRECTION_RETRIES_APPLIED)
+		MSG(RECOVERED_DATA_WITH_ERROR_CORRECTION_APPLIED)
+		MSG(RECOVERED_DATA_WITH_NEGATIVE_HEAD_OFFSET)
+		MSG(RECOVERED_DATA_WITH_NO_ERROR_CORRECTION_APPLIED)
+		MSG(RECOVERED_DATA_WITH_POSITIVE_HEAD_OFFSET)
+		MSG(RECOVERED_DATA_WITH_RETRIES)
+		MSG(RECOVERED_DATA_WITHOUT_ECC_DATA_AUTO_REALLOCATED)
+		MSG(RECOVERED_DATA_WITHOUT_ECC_RECOMMEND_REASSIGNMENT)
+		MSG(RECOVERED_DATA_WITHOUT_ECC_RECOMMEND_REWRITE)
+		MSG(RECOVERED_ID_WITH_ECC_CORRECTION)
+		MSG(ROUNDED_PARAMETER)
+		MSG(RPL_STATUS_CHANGE)
+		MSG(SAVING_PARAMETERS_NOT_SUPPORTED)
+		MSG(SCSI_BUS_RESET)
+		MSG(SCSI_PARITY_ERROR)
+		MSG(SELECT_OR_RESELECT_FAILURE)
+		MSG(SPINDLES_NOT_SYNCHRONIZED)
+		MSG(SPINDLES_SYNCHRONIZED)
+		MSG(SYNCHRONOUS_DATA_TRANSFER_ERROR)
+		MSG(TARGET_OPERATING_CONDITIONS_HAVE_CHANGED)
+		MSG(THRESHOLD_CONDITION_MET)
+		MSG(THRESHOLD_PARAMETERS_NOT_SUPPORTED)
+		MSG(TRACK_FOLLOWING_ERROR)
+		MSG(UNRECOVERED_READ_ERROR)
+		MSG(UNRECOVERED_READ_ERROR_AUTO_REALLOCATE_FAILED)
+		MSG(UNRECOVERED_READ_ERROR_RECOMMEND_REASSIGNMENT)
+		MSG(UNRECOVERED_READ_ERROR_RECOMMEND_REWRITE_THE_DATA)
+		MSG(UNSUCCESSFUL_SOFT_RESET)
+		MSG(WRITE_ERROR_AUTO_REALLOCATION_FAILED)
+		MSG(WRITE_ERROR_RECOVERED_WITH_AUTO_REALLOCATION)
+		MSG(WRITE_PROTECTED)
+		}
+		msg << "\n          ";
+		MSGBIT(buf[26], DISK_STARTED)
+		MSGBIT(buf[26], DISK_PRESENT)
+		MSGBIT(buf[26], DISK_INITIALISED)
+		MSGBIT(buf[26], DISK_WP)
+		msg << "\n          ";
+		msg << "Ticks " << ticks;
+		msg << " msgIn " << (int)(buf[12]);
+		msg << " msgOut " << (int)(buf[13]);
+		msg << " rstCount " << (int)(buf[21]);
+		msg << " selCount " << (int)(buf[22]);
+		msg << " msgCount " << (int)(buf[23]);
+		msg << " cmdCount " << (int)(buf[24]);
 		wxLogMessage(this, msg.str().c_str());
         }
 
